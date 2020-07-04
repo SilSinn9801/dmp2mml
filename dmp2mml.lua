@@ -22,6 +22,25 @@ if (#arg == 0) then
   os.exit (0)
 end
 
+local function printOps (opsComment, opFormat, opsData, opOrder)
+  print (opsComment)
+  local opOrder = opOrder or (function (length)
+    local order = {}
+    for i = 1, length do
+      order[#order+1] = i
+    end
+    return order
+  end)(#opData)
+
+  for _, op in ipairs (opOrder) do
+    local opData = opsData[op]
+    local opPrint = {opFormat:gsub ("&([^&]*)&", function (opArg)
+      return opData[opArg] and string.format ("%03d", opData[opArg]) or ""
+    end)}
+    print (opPrint[1])
+  end
+end
+
 for n, dmpfile in ipairs (arg) do
 
   -- If regular file, open
@@ -57,7 +76,7 @@ for n, dmpfile in ipairs (arg) do
         dmpversion, dmpversion
       ))
     end
-										
+
     --File format 11 specifies target sound system; file format 10 doesn't.
     local dmpsystem = 0x02  --Assume default value if format 10
     if (dmpversion == 0x0b) then
@@ -141,19 +160,20 @@ for n, dmpfile in ipairs (arg) do
       Also, DefleMask muxes DT/DT2 parameters for YM2151 into a single DT field;
       we must demux both params using bitwise-AND & right-shift operations.
     ]]
+    -- local function printOps (opsComment, opFormat, opsData, opOrder)
     local opOrder = {1, 3, 2, 4}
+    local opsComment, opFormat, opsData = "", "", {}
     if (dmpsystem == 0x08) then
       --PMD68 MML instruments for YM2151
-      print ("; ar  dr  sr  rr  sl  tl  ks  ml  dt dt2 ams")
+      opsComment = "; ar  dr  sr  rr  sl  tl  ks  ml  dt dt2 ams"
+      opFormat = " &AR& &DR& &D2R& &RR& &SL& &TL& &RS& &MULT& &DT& &DT2& &AM&"
       for _, op in ipairs (opOrder) do
-        print (string.format (
-          " %03d %03d %03d %03d %03d %03d %03d %03d %03d %03d %03d",
-          dmpFMOPslot[op]["AR"],dmpFMOPslot[op]["DR"],dmpFMOPslot[op]["D2R"],
-          dmpFMOPslot[op]["RR"],dmpFMOPslot[op]["SL"],dmpFMOPslot[op]["TL"],
-          dmpFMOPslot[op]["RS"],dmpFMOPslot[op]["MULT"],
-          dmpFMOPslot[op]["DT"]&0x0F,dmpFMOPslot[op]["DT"]>>4,
-          dmpFMOPslot[op]["AM"]
-        ))
+        opsData[op] = {}
+        for _, opArg in ipairs ({"AR", "DR", "D2R", "RR", "SL", "TL", "RS", "MULT", "AM"}) do
+          opsData[op][opArg] = dmpFMOPslot[op][opArg]
+        end
+        opsData[op]["DT"] = dmpFMOPslot[op]["DT"] & 0x0F
+        opsData[op]["DT2"] = dmpFMOPslot[op]["DT"] >> 4
       end
     else
       --PMD88 & PMD98 MML instruments for YM2203 & YM2608;
@@ -161,31 +181,12 @@ for n, dmpfile in ipairs (arg) do
 
       --SSGEG parameter is not defined in MML instrument patches per se,
       --so if detected, print it instead as a side comment for each slot.
-      if (dmpHasSSGEG) then
-        print ("; ar  dr  sr  rr  sl  tl  ks  ml  dt ams ;seg")
-        for _, op in ipairs (opOrder) do
-          print (string.format (
-            " %03d %03d %03d %03d %03d %03d %03d %03d %03d %03d ;%03d",
-            dmpFMOPslot[op]["AR"],dmpFMOPslot[op]["DR"],dmpFMOPslot[op]["D2R"],
-            dmpFMOPslot[op]["RR"],dmpFMOPslot[op]["SL"],dmpFMOPslot[op]["TL"],
-            dmpFMOPslot[op]["RS"],dmpFMOPslot[op]["MULT"],
-            dmpFMOPslot[op]["DT"],dmpFMOPslot[op]["AM"],dmpFMOPslot[op]["SSGEG"]
-          ))
-        end
-      else
-        print ("; ar  dr  sr  rr  sl  tl  ks  ml  dt ams")
-        for _, op in ipairs (opOrder) do
-          print (string.format (
-            " %03d %03d %03d %03d %03d %03d %03d %03d %03d %03d",
-            dmpFMOPslot[op]["AR"],dmpFMOPslot[op]["DR"],dmpFMOPslot[op]["D2R"],
-            dmpFMOPslot[op]["RR"],dmpFMOPslot[op]["SL"],dmpFMOPslot[op]["TL"],
-            dmpFMOPslot[op]["RS"],dmpFMOPslot[op]["MULT"],
-            dmpFMOPslot[op]["DT"],dmpFMOPslot[op]["AM"]
-          ))
-        end
-      end
+      opsComment = "; ar  dr  sr  rr  sl  tl  ks  ml  dt ams" .. (dmpHasSSGEG and " ;seg" or "")
+      opFormat = " &AR& &DR& &D2R& &RR& &SL& &TL& &RS& &MULT& &DT& &AM&" .. (dmpHasSSGEG and " ;&SSGEG&" or "")
+      opsData = dmpFMOPslot
     end
 
+    printOps (opsComment, opFormat, opsData, opOrder)
     print()
   end
 end
