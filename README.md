@@ -4,8 +4,16 @@ Converts one or more 4-operator FM instrument patches from **DefleMask** .DMP fi
 Authors: @OPNA2608 and @SilSinn9801<br>
 License: Public Domain
 
-Usage:
-> ```dmp2mml.lua dmpfile_1 [ dmpfile_2 [...] ] [ > mmlfile ]```
+Requires: Lua interpreter version 5.3 or higher; does not properly run under 5.1 or lower; untested under 5.2.
+
+Usage under UNIX, Linux, or MacOS X:
+> ```dmp2mml.lua "dmpfile_1" [ "dmpfile_2" [...] ] [ > mmlfile ]```
+
+Usage under Windows (Command Prompt; assumes Lua interpreter is named lua.exe):
+> ```lua dmp2mml.lua "dmpfile_1" [ "dmpfile_2" [...] ] [ > mmlfile ]```
+
+Usage under Windows (PowerShell; also assumes Lua interpreter is named lua.exe):
+> ```.\lua dmp2mml.lua "dmpfile_1" [ "dmpfile_2" [...] ] [ > mmlfile ]```
 
 Parameters:
 > `dmpfile`: DefleMask instrument patch file (`.DMP`) or *stdin* (`-`)<br>
