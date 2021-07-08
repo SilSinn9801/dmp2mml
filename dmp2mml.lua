@@ -1,15 +1,16 @@
 #!/usr/bin/env lua
 
 --[[
-  dmp2mml: Converts one or more 4-op FM instrument patches from DefleMask DMP
-           files into a Professional Music Driver (PMD) Music Macro Language
-           (MML) file for use in PMD68 (YM2151), PMD88/PMD98 (YM2203/YM2608),
-           and PMDTOWNS (YM2612) music files.
-  Authors: OPNA2608 (オップナー2608#6983)
-           Silent Sinner in Scarlet (SilSinn9801#0413)
-  License: Public Domain
-  Usage:   lua dmp2mml.lua dmpfile_1 [dmpfile_2 [...] ]
-           lua dmp2mml.lua dmpfile_1 [dmpfile_2 [...] ] > mmlfile
+  dmp2mml:  Converts one or more 4-op FM instrument patches from DefleMask DMP
+            files into a Professional Music Driver (PMD) Music Macro Language
+            (MML) file for use in PMD68 (YM2151), PMD88/PMD98 (YM2203/YM2608),
+            and PMDTOWNS (YM2612) music files.
+  Authors:  OPNA2608 (オップナー2608#6983)
+            Silent Sinner in Scarlet (SilSinn9801#0413)
+  License:  Public Domain
+  Requires: Lua 5.3 or higher (fails to run in 5.1 & under; untested in 5.2)
+  Usage:    lua dmp2mml.lua "dmpfile_1" ["dmpfile_2" [...] ]
+            lua dmp2mml.lua "dmpfile_1" ["dmpfile_2" [...] ] > mmlfile
   Parameters:
     dmpfile: DefleMask instrument patch file (.DMP)
     mmlfile: PMD68/88/98/TOWNS list of instrument patches (.MML)
@@ -18,7 +19,12 @@
 local stdinprocessed = false
 
 if (#arg == 0) then
-  print ("Usage: dmp2mml.lua dmpfile_1 [dmpfile_2 [...] ] [> mmlfile]")
+  print ("Usage (UNIX/Linux/OSX):")
+  print ("      dmp2mml.lua \"dmpfile_1\" [\"dmpfile_2\" [...] ] [> mmlfile]")
+  print ("Usage (Windows Command Prompt):")
+  print ("  lua dmp2mml.lua \"dmpfile_1\" [\"dmpfile_2\" [...] ] [> mmlfile]")
+  print ("Usage (Windows PowerShell):")
+  print (".\\lua dmp2mml.lua \"dmpfile_1\" [\"dmpfile_2\" [...] ] [> mmlfile]")
   os.exit (0)
 end
 
@@ -100,14 +106,35 @@ for n, dmpfile in ipairs (arg) do
       ))
     end
 
+    --Hardware LFO status flags
+    local dmpHasPMS = false
+    local dmpHasAMS = false
+
     --Read instrument parameters LFO, FB, ALG, & LFO2
-    local dmpLFO  = string.byte (dmpfilehandle:read (1))
+    local dmpLFO  = string.byte (dmpfilehandle:read (1)) --PMS (YM2612: FMS)
     local dmpFB   = string.byte (dmpfilehandle:read (1))
     local dmpALG  = string.byte (dmpfilehandle:read (1))
-    local dmpLFO2 = string.byte (dmpfilehandle:read (1))
-    --PMDMML only allows FB & ALG in instrument patches; LFO & LFO2 are ignored.
-    print ("; nm  ag  fb")
-    print (string.format ("@%03d %03d %03d", n, dmpALG, dmpFB))
+    local dmpLFO2 = string.byte (dmpfilehandle:read (1)) --AMS
+    --PMDMML only allows FB & ALG in instrument patches;
+    --LFO (& LFO2) are instead separately defined using the H command:
+    --	H LFO[,LFO2]
+    -- examples:
+    --	H3	 ;(LFO only)
+    --	H6,2 ;(LFO + LFO2)
+    if (dmpLFO  > 0) then dmpHasPMS = true
+    end
+    if (dmpLFO2 > 0) then
+      dmpHasPMS = true	--AMS cannot be defined unless PMS is first defined
+      dmpHasAMS = true
+    end
+    print ("; nm  ag  fb" .. (dmpHasPMS and " ;pms" or "") .. (dmpHasAMS and " ams" or ""))
+    if     (dmpHasAMS) then
+      print (string.format ("@%03d %03d %03d ;%03d %03d", n-1, dmpALG, dmpFB, dmpLFO, dmpLFO2))
+    elseif (dmpHasPMS) then
+      print (string.format ("@%03d %03d %03d ;%03d", n-1, dmpALG, dmpFB, dmpLFO))
+    else
+      print (string.format ("@%03d %03d %03d", n-1, dmpALG, dmpFB))
+    end
 
     --Number of FM operators
     --YM2612 (SMD) & YM2151 are four-operator chips.
@@ -164,24 +191,30 @@ for n, dmpfile in ipairs (arg) do
     local opOrder = {1, 3, 2, 4}
     local opsComment, opFormat, opsData = "", "", {}
     if (dmpsystem == 0x08) then
-      --PMD68 MML instruments for YM2151
-      opsComment = "; ar  dr  sr  rr  sl  tl  ks  ml  dt dt2 ams"
+      --PMD68 MML instrument for YM2151
+      opsComment = "; ar  dr  sr  rr  sl  tl  ks  ml  dt dt2 amon"
       opFormat = " &AR& &DR& &D2R& &RR& &SL& &TL& &RS& &MULT& &DT& &DT2& &AM&"
       for _, op in ipairs (opOrder) do
         opsData[op] = {}
         for _, opArg in ipairs ({"AR", "DR", "D2R", "RR", "SL", "TL", "RS", "MULT", "AM"}) do
           opsData[op][opArg] = dmpFMOPslot[op][opArg]
         end
-        opsData[op]["DT"] = dmpFMOPslot[op]["DT"] & 0x0F
+        opsData[op]["DT"]  = dmpFMOPslot[op]["DT"] & 0x0F
         opsData[op]["DT2"] = dmpFMOPslot[op]["DT"] >> 4
       end
     else
-      --PMD88 & PMD98 MML instruments for YM2203 & YM2608;
-      --also PMDTOWNS MML instruments for YM2612
+      --PMD88 & PMD98 MML instrument for YM2203 & YM2608;
+      --also PMDTOWNS MML instrument for YM2612
 
       --SSGEG parameter is not defined in MML instrument patches per se,
       --so if detected, print it instead as a side comment for each slot.
-      opsComment = "; ar  dr  sr  rr  sl  tl  ks  ml  dt ams" .. (dmpHasSSGEG and " ;seg" or "")
+      --SSGEG param(s) is/are defined in PMDMML 4.8s using the SE command:
+      --  SE slot(s),SSGEG
+      -- examples:
+      --  SE01,05	;slot 1 only
+      --  SE02,09	;slot 2 only
+      --  SE12,12	;slots 3 (4) & 4 (8)
+      opsComment = "; ar  dr  sr  rr  sl  tl  ks  ml  dt  am" .. (dmpHasSSGEG and " ;seg" or "")
       opFormat = " &AR& &DR& &D2R& &RR& &SL& &TL& &RS& &MULT& &DT& &AM&" .. (dmpHasSSGEG and " ;&SSGEG&" or "")
       opsData = dmpFMOPslot
     end
